@@ -7,6 +7,21 @@ from mmengine.dataset import BaseDataset, force_full_init
 
 from mmdet.registry import DATASETS, TRANSFORMS
 
+from functools import wraps
+import os
+from loguru import logger
+
+
+def log_function(f):
+    @wraps(f)
+    def func_wrapper(*args, **kwargs):
+        rank = os.environ.get('RANK', 0)
+        logger.info(f'rank: {rank} | enter func {f.__name__}')
+        out = f(*args, **kwargs)
+        logger.info(f'rank: {rank} | exit func {f.__name__}')
+        return out
+    return func_wrapper
+
 
 @DATASETS.register_module()
 class MultiImageMixDataset:
@@ -111,6 +126,7 @@ class MultiImageMixDataset:
     def __len__(self):
         return self.num_samples
 
+    @log_function
     def __getitem__(self, idx):
         results = copy.deepcopy(self.dataset[idx])
         for (transform, transform_type) in zip(self.pipeline,

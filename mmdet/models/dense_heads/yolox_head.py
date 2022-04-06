@@ -1,5 +1,8 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import math
+from loguru import logger
+import os
+from mmengine.logging import MessageHub
 from typing import List, Optional, Sequence, Tuple, Union
 
 import torch
@@ -20,6 +23,23 @@ from ..task_modules.prior_generators import MlvlPointGenerator
 from ..task_modules.samplers import PseudoSampler
 from ..utils import multi_apply
 from .base_dense_head import BaseDenseHead
+
+
+from functools import wraps
+
+
+def log_function(f):
+    @wraps(f)
+    def func_wrapper(*args, **kwargs):
+        rank = os.environ.get('RANK', 0)
+        message_hub = MessageHub.get_current_instance()
+        epoch = message_hub.get_info('epoch')
+        iteration = message_hub.get_info('iter')
+        logger.info(f'rank: {rank} | epoch: {epoch} | iter: {iteration}, enter func {f.__name__}')
+        out = f(*args, **kwargs)
+        logger.info(f'rank: {rank} | epoch: {epoch} | iter: {iteration}, exit func {f.__name__}')
+        return out
+    return func_wrapper
 
 
 @MODELS.register_module()
@@ -228,6 +248,7 @@ class YOLOXHead(BaseDenseHead):
                            self.multi_level_conv_reg,
                            self.multi_level_conv_obj)
 
+    @log_function
     def predict_by_feat(self,
                         cls_scores: List[Tensor],
                         bbox_preds: List[Tensor],
@@ -323,6 +344,7 @@ class YOLOXHead(BaseDenseHead):
 
         return result_list
 
+    @log_function
     def _bbox_decode(self, priors: Tensor, bbox_preds: Tensor) -> Tensor:
         """Decode regression results (delta_x, delta_x, w, h) to bboxes (tl_x,
         tl_y, br_x, br_y).
@@ -396,6 +418,7 @@ class YOLOXHead(BaseDenseHead):
             results.scores = det_bboxes[:, -1]
         return results
 
+    @log_function
     def loss_by_feat(
             self,
             cls_scores: Sequence[Tensor],
@@ -470,11 +493,17 @@ class YOLOXHead(BaseDenseHead):
 
         # The experimental results show that 'reduce_mean' can improve
         # performance on the COCO dataset.
+        rank = os.environ.get('RANK', 0)
+        message_hub = MessageHub.get_current_instance()
+        epoch = message_hub.get_info('epoch')
+        iteration = message_hub.get_info('iter')
+        logger.info(f'rank: {rank} | epoch: {epoch} | iter: {iteration}, start reduce_mean num_pos')
         num_pos = torch.tensor(
             sum(num_fg_imgs),
             dtype=torch.float,
             device=flatten_cls_preds.device)
         num_total_samples = max(reduce_mean(num_pos), 1.0)
+        logger.info(f'rank: {rank} | epoch: {epoch} | iter: {iteration}, end reduce_mean num_pos')
 
         pos_masks = torch.cat(pos_masks, 0)
         cls_targets = torch.cat(cls_targets, 0)
@@ -519,6 +548,7 @@ class YOLOXHead(BaseDenseHead):
         return loss_dict
 
     @torch.no_grad()
+    @log_function
     def _get_targets_single(
             self,
             priors: Tensor,
@@ -606,6 +636,7 @@ class YOLOXHead(BaseDenseHead):
         return (foreground_mask, cls_target, obj_target, bbox_target,
                 l1_target, num_pos_per_img)
 
+    @log_function
     def _get_l1_target(self,
                        l1_target: Tensor,
                        gt_bboxes: Tensor,
