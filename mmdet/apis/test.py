@@ -21,12 +21,16 @@ def single_gpu_test(model,
                     show_score_thr=0.3):
     model.eval()
     results = []
+    filenames = []
     dataset = data_loader.dataset
     PALETTE = getattr(dataset, 'PALETTE', None)
     prog_bar = mmcv.ProgressBar(len(dataset))
     for i, data in enumerate(data_loader):
-        with torch.no_grad():
+        with torch.no_grad(): 
             result = model(return_loss=False, rescale=True, **data)
+             
+            img_metas = data['img_metas'][0].data[0]
+            filename = [img_meta['ori_filename'] for img_meta in img_metas]
 
         batch_size = len(result)
         if show or out_dir:
@@ -64,18 +68,22 @@ def single_gpu_test(model,
         if isinstance(result[0], tuple):
             result = [(bbox_results, encode_mask_results(mask_results))
                       for bbox_results, mask_results in result]
+            filename = [img_meta['ori_filename'] for img_meta in img_metas]
+
         # This logic is only used in panoptic segmentation test.
         elif isinstance(result[0], dict) and 'ins_results' in result[0]:
             for j in range(len(result)):
                 bbox_results, mask_results = result[j]['ins_results']
                 result[j]['ins_results'] = (bbox_results,
                                             encode_mask_results(mask_results))
+                filename = [img_meta['ori_filename'] for img_meta in img_metas]
 
         results.extend(result)
+        filenames.extend(filename)
 
         for _ in range(batch_size):
             prog_bar.update()
-    return results
+    return filenames, results
 
 
 def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
